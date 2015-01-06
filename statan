@@ -1,0 +1,70 @@
+#!/usr/bin/python3
+#
+#    statan
+#    Copyright 2013-2015 Jacopo Nespolo <jacopo.nespolo@pi.infn.it>
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+from sys import stdin, stdout, stderr, exit, argv
+import numpy as np
+from libstat import block, jackknife
+import argparse as ap
+
+
+parser = ap.ArgumentParser(description = \
+                           "Quick and dirty statistical analysis tool")
+parser.add_argument('infiles', nargs='*', help='Input data files',
+                    default=stdin)
+parser.add_argument('-c', '--column', type=int, nargs='*', default=None,
+                    help="Column of data files to fetch", dest="columns")
+parser.add_argument('-F', '--fast-read', action='store_true',
+          help="Use fast read method (single column for now, no comments).")
+parser.add_argument('-v', '--verbose', action='store_true')
+
+
+def read_file(filename, columns=None, fast_read=False):
+    if fast_read:
+        data = np.fromfile(filename, dtype=float, sep=" ")
+    else:
+        data = np.loadtxt(filename, usecols=columns)
+    return data
+
+
+if __name__ == "__main__":
+    args = parser.parse_args()
+
+    try:
+        number_of_input_files = len(args.infiles)
+    except TypeError:
+        number_of_input_files = 1
+
+    for filename in args.infiles:
+        if number_of_input_files > 1:
+            stdout.write("# {}\n".format(filename))
+        data = read_file(filename, columns=args.columns,
+                         fast_read=args.fast_read)
+        shape = data.shape
+
+        blocks = block(data, bsize=(len(data)//25),
+                       ignore_discarded="Silent")
+        mean, err = jackknife(blocks)
+        try:
+            for i in range(shape[1]):
+                stdout.write("%g\t%g\t" %(mean[i], err[i]))
+                stdout.write('\n')
+        except IndexError:
+            stdout.write("%g\t%g\n" %(mean, err))
+        continue
+    exit(0)
