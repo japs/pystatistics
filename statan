@@ -29,14 +29,24 @@ parser.add_argument('infiles', nargs='*', help='Input data files',
                     default=stdin)
 parser.add_argument('-c', '--column', type=int, nargs='*', default=None,
                     help="Column of data files to fetch", dest="columns")
-parser.add_argument('-F', '--fast-read', action='store_true',
+parser.add_argument('-F', '--fast-read', action='store_true', default=False,
           help="Use fast read method (single column for now, no comments).")
-parser.add_argument('-v', '--verbose', action='store_true')
+parser.add_argument('-C', '--ncolumns', type=int, default=1,
+                    help="Number of columns for fast read. Defaults to 1.")
+parser.add_argument('-m', '--method', default="block",
+                    help="Method to compute errors (block|dumb).")
+parser.add_argument('--nblocks', default=25, type=int,
+                    help="Number of blocks to use to decorrelate data.")
+parser.add_argument('-v', '--verbose', action='store_true', default=False,
+                    help='Produce verbose output')
 
 
-def read_file(filename, columns=None, fast_read=False):
+def read_file(filename, columns=None, fast_read=False, ncolumns=1):
     if fast_read:
         data = np.fromfile(filename, dtype=float, sep=" ")
+        if ncolumns != 1:
+            tokens = len(data)
+            data = np.reshape(data, (tokens//ncolumns, ncolumns))
     else:
         data = np.loadtxt(filename, usecols=columns)
     return data
@@ -50,16 +60,30 @@ if __name__ == "__main__":
     except TypeError:
         number_of_input_files = 1
 
+    if args.verbose:
+        verbose_out  = "# Received {} input files\n"
+
     for filename in args.infiles:
         if number_of_input_files > 1:
             stdout.write("# {}\n".format(filename))
         data = read_file(filename, columns=args.columns,
-                         fast_read=args.fast_read)
+                         fast_read=args.fast_read, ncolumns=args.ncolumns)
         shape = data.shape
 
-        blocks = block(data, bsize=(len(data)//25),
-                       ignore_discarded="Silent")
-        mean, err = jackknife(blocks)
+        if args.method == "block":
+            if args.verbose:
+                msg = "# Using blocking + jackknife with {} blocks\n"
+                stderr.write(msg.format(args.nblocks))
+            blocks = block(data, bsize=(len(data)//args.nblocks),
+                           ignore_discarded="Silent")
+            mean, err = jackknife(blocks)
+        elif args.method == "dumb":
+            mean = np.mean(data, axis=0)
+            err = np.std(data, axis=0, ddof=1)
+        else:
+            raise ValueError("--method option accepts either \
+                              'block' or 'dumb'.")
+
         try:
             for i in range(shape[1]):
                 stdout.write("%g\t%g\t" %(mean[i], err[i]))
